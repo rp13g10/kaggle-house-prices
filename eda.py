@@ -76,132 +76,155 @@ def get_metadata():
     return metadata
 
 
-#%% Bring in the data
-metadata = get_metadata()
-train = pd.read_csv('train.csv', index_col='Id', keep_default_na=False)
+def validate_data(df, metadata):
+    '''Ensure that every value in the dataframe is consistent with the schema defined in
+    the table metadata'''
 
-#%% Check everything matches up
-meta_cols = set(metadata.keys())
-df_cols = set(train.columns)
+    # Prevent any changes from leaking out into the global scope unintentionally
+    df = df.copy(deep=True)
 
-# Not a 100% match just yet
-assert len(meta_cols) == 79
-assert len(df_cols) == 80
-assert len(meta_cols.intersection(df_cols)) == 77
-assert meta_cols - df_cols == {'Bedroom', 'Kitchen'}
-assert df_cols - meta_cols == {'BedroomAbvGr', 'KitchenAbvGr', 'SalePrice'}
+    #%% Take a closer look at numerical columns
+    num_cols = [x for x in metadata if metadata[x]['type']=='number']
 
-# Update metadata to reflect the dataframe
-metadata['BedroomAbvGr'] = metadata['Bedroom']
-metadata['KitchenAbvGr'] = metadata['Kitchen']
-del metadata['Bedroom']
-del metadata['Kitchen']
+    # Remove any non-numerical data from the numerical columns
+    for num_col in num_cols:
+        df.loc[:, num_col] = pd.to_numeric(df.loc[:, num_col], errors='coerce')
 
-# Check that the only difference is the column being predicted
-meta_cols = set(metadata.keys())
-assert df_cols.difference(meta_cols) == {'SalePrice'}
+    # Note that many numerical columns contain 0s in place of nulls
+    # Treat an area of 0 as a null
+    area_cols = [
+        x for x in num_cols
+        if any(
+            phrase in metadata[x]['description']
+            for phrase in ['square foot', 'area', 'square feet']
+        )
+    ]
 
+    df.loc[:, area_cols] = df.loc[:, area_cols].replace(0, pd.NA)
 
+    # Remove any categorical values which aren't specified in the metadata
+    cat_cols = [x for x in metadata if metadata[x]['type'] == 'category']
 
-####################################################################################################
-# Check for missing values                                                                         #
-####################################################################################################
+    for cat_col in cat_cols:
+        cat_vals = metadata[cat_col]['values']
+        df.loc[:, cat_col] = df[cat_col].where(df[cat_col].isin(cat_vals))
 
-#%% Take a closer look at numerical columns
-num_cols = [x for x in metadata if metadata[x]['type']=='number']
-train[num_cols]
-
-
-#%% Validate all data ##############################################################################
-
-# Remove any non-numerical data from the numerical columns
-for num_col in num_cols:
-    train.loc[:, num_col] = pd.to_numeric(train.loc[:, num_col], errors='coerce')
-
-# Note that many numerical columns contain 0s in place of nulls
-# Treat an area of 0 as a null
-area_cols = [x for x in num_cols
-             if any(
-                 phrase in metadata[x]['description']
-                 for phrase in ['square foot', 'area', 'square feet'])
-            ]
-
-train.loc[:, area_cols] = train.loc[:, area_cols].replace(0, pd.NA)
-
-# Remove any categorical values which aren't specified in the metadata
-cat_cols = [x for x in metadata if metadata[x]['type'] == 'category']
-
-for cat_col in cat_cols:
-    cat_vals = metadata[cat_col]['values']
-    train.loc[:, cat_col] = train[cat_col].where(train[cat_col].isin(cat_vals))
-
-#%% Check field completion
-tot_records = len(train.index)
-counts = train.count(axis='index')
-counts /= tot_records
-counts = counts.sort_values(ascending=True)
-counts.head(20)
-
-def find_cols(search):
-    '''Convenience function to find metadata for columns containing a
-    key word'''
-    keys = [x for x in metadata if search.lower() in x.lower()]
-    return {k: v for k, v in metadata.items() if k in keys}
-
-# PoolArea (0.005) - Drop in favour of PoolQC which is 100% populated
-# Porch columns will be merged, remaining NAs to be filled with 0s
-# LowQualFinSF (0.018) - Fill blanks with 0
-# Alley looks acceptable (0.06), but convert non-nas to boolean
-# Drop BsmtFinSF2 (0.11) in favour of BsmtFinType2
-# Drop SaleType (0.13), can't see any reliable way to fill in the gaps
-# Drop MasVnrArea (0.4) in favour of MasVnrType
-# Fill 2ndFlrSF (0.43) with mean where building type isn't a 1-storey variant
-# WoodDeckSF (0.47) - Fill blanks with 0
-# BsmtFinSF1 (0.68) - Fill blanks with 0 if BsmtFinType1 is 'NA' else use TotalBsmtSF - BsmtUnfSF
-# LotFrontage (0.82) - Fill blanks with mean
-# Neighborhood (0.84) - Fill blanks with mode
-# BldgType (0.91) - Fill blanks with mode
-# BsmtUnfSF (0.92) - Fill blanks with 0
-# Exterior2nd (0.93) - Leave NAs in place
-# GarageArea (0.94) - Fill blanks with 0
-# GarageYrBlt (0.04) - Fill blanks with mean
-# TotalBsmtSF (0.97) - Fill blanks with 0
-# MSZoning (0.99) - Fill blanks with mode
-# MasVnrType (0.99) - Fill blanks with mode
-# Electrical (0.99) - Fill blanks with mode
+    return df
 
 
-# Lots of porch columns with limited data, merge them
-porch_cols = find_cols('porch').keys()
+def load_validated_data(fname):
+    '''This function loads in the metadata table and uses it to ensure that all
+    values brought in conform to the provided specification. Non-conforming values are simply
+    dropped, to be dealt with at a later time'''
+
+    #%% Bring in the data
+    metadata = get_metadata()
+    df = pd.read_csv(fname, index_col='Id', keep_default_na=False)
+
+    #%% Check everything matches up
+    meta_cols = set(metadata.keys())
+    df_cols = set(df.columns)
+
+    if fname == 'train.csv':
+        # Not a 100% match just yet
+        assert len(meta_cols) == 79
+        assert len(df_cols) == 80
+        assert len(meta_cols.intersection(df_cols)) == 77
+        assert meta_cols - df_cols == {'Bedroom', 'Kitchen'}
+        assert df_cols - meta_cols == {'BedroomAbvGr', 'KitchenAbvGr', 'SalePrice'}
+
+    # Update metadata to reflect the dataframe
+    metadata['BedroomAbvGr'] = metadata['Bedroom']
+    metadata['KitchenAbvGr'] = metadata['Kitchen']
+    del metadata['Bedroom']
+    del metadata['Kitchen']
+
+    # Check that the only difference is the column being predicted
+    meta_cols = set(metadata.keys())
+    assert df_cols.difference(meta_cols) == {'SalePrice'}
+
+    return df, metadata
 
 
-#%% Check for outliers/variance
-for col in train.columns:
-    print(col)
-    fig = train[col].hist()
+if __name__ == '__main__':
+    # Load data into the kernel
+    train, metadata = load_validated_data('train.csv')
+
+    # Get a list of all numerical fields
+    num_cols = [x for x in metadata if metadata[x]['type']=='number']
+
+
+    ####################################################################################################
+    # Check for missing values                                                                         #
+    ####################################################################################################
+
+    #%% Check field completion
+    tot_records = len(train.index)
+    counts = train.count(axis='index')
+    counts /= tot_records
+    counts = counts.sort_values(ascending=True)
+    counts.head(20)
+
+    def find_cols(search):
+        '''Convenience function to find metadata for columns containing a
+        key word'''
+        keys = [x for x in metadata if search.lower() in x.lower()]
+        return {k: v for k, v in metadata.items() if k in keys}
+
+    # PoolArea (0.005) - Drop in favour of PoolQC which is 100% populated
+    # Porch columns will be merged, remaining NAs to be filled with 0s
+    # LowQualFinSF (0.018) - Fill blanks with 0
+    # Alley looks acceptable (0.06), but convert non-nas to boolean
+    # Drop BsmtFinSF2 (0.11) in favour of BsmtFinType2
+    # Drop SaleType (0.13), can't see any reliable way to fill in the gaps
+    # Drop MasVnrArea (0.4) in favour of MasVnrType
+    # Fill 2ndFlrSF (0.43) with mean where building type isn't a 1-storey variant
+    # WoodDeckSF (0.47) - Fill blanks with 0
+    # BsmtFinSF1 (0.68) - Fill blanks with 0 if BsmtFinType1 is 'NA' else use TotalBsmtSF - BsmtUnfSF
+    # LotFrontage (0.82) - Fill blanks with mean
+    # Neighborhood (0.84) - Fill blanks with mode
+    # BldgType (0.91) - Fill blanks with mode
+    # BsmtUnfSF (0.92) - Fill blanks with 0
+    # Exterior2nd (0.93) - Leave NAs in place
+    # GarageArea (0.94) - Fill blanks with 0
+    # GarageYrBlt (0.04) - Fill blanks with mean
+    # TotalBsmtSF (0.97) - Fill blanks with 0
+    # MSZoning (0.99) - Fill blanks with mode
+    # MasVnrType (0.99) - Fill blanks with mode
+    # Electrical (0.99) - Fill blanks with mode
+
+
+    # Lots of porch columns with limited data, merge them
+    porch_cols = find_cols('porch').keys()
+
+
+    #%% Check for outliers/variance
+    for col in train.columns:
+        print(col)
+        fig = train[col].hist()
+        plt.show()
+        input('Press enter to continue')
+
+    # Possible anomalies in LotArea
+    # Low variance in Street, Utilities, Condition2, Heating, 
+    # Very few BsmtHalfBaht entries, merge with BsmtFullBath
+    # Drop MiscFeature in favour of MiscVal, almost all are sheds
+
+
+
+    #%% Check for covariance
+    plt.figure(figsize=(18,16))
+    scaled = train[num_cols] / train[num_cols].std()
+    cov = scaled.cov()
+    fig = sns.heatmap(cov, vmin=0, vmax=1)
     plt.show()
-    input('Press enter to continue')
 
-# Possible anomalies in LotArea
-# Low variance in Street, Utilities, Condition2, Heating, 
-# Very few BsmtHalfBaht entries, merge with BsmtFullBath
-# Drop MiscFeature in favour of MiscVal, almost all are sheds
+    covs = {}
+    for row in num_cols:
+        for col in num_cols:
+            if row != col and (col, row) not in covs:
+                covs[(row, col)] = cov.loc[row, col]
 
+    covs = [(x, covs[x]) for x in sorted(covs, key=lambda x: covs[x])]
 
-
-#%% Check for covariance
-plt.figure(figsize=(18,16))
-scaled = train[num_cols] / train[num_cols].std()
-cov = scaled.cov()
-fig = sns.heatmap(cov, vmin=0, vmax=1)
-plt.show()
-
-covs = {}
-for row in num_cols:
-    for col in num_cols:
-        if row != col and (col, row) not in covs:
-            covs[(row, col)] = cov.loc[row, col]
-
-covs = [(x, covs[x]) for x in sorted(covs, key=lambda x: covs[x])]
-
-# Based on tail of covs, could swap TotalBsmtSF to BsmtPresent
+    # Based on tail of covs, could swap TotalBsmtSF to BsmtPresent
