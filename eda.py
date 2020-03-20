@@ -88,6 +88,7 @@ def validate_data(df, metadata):
 
     # Remove any non-numerical data from the numerical columns
     for num_col in num_cols:
+        # df.loc[:, num_col] = df.loc[:, num_col].replace('NA', pd.NA)
         df.loc[:, num_col] = pd.to_numeric(df.loc[:, num_col], errors='coerce')
 
     # Note that many numerical columns contain 0s in place of nulls
@@ -102,12 +103,40 @@ def validate_data(df, metadata):
 
     df.loc[:, area_cols] = df.loc[:, area_cols].replace(0, pd.NA)
 
-    # Remove any categorical values which aren't specified in the metadata
+    # Make some substitutions where values don't match the metadata
+    df.loc[:, 'Exterior2nd'] = df.loc[:, 'Exterior2nd'].replace({
+        'Wd Shng': 'WdShing',
+        'CmentBd': 'CemntBd',
+        'Brk Cmn': 'BrkComm'
+    })
+
+    df.loc[:, 'MSZoning'] = df.loc[:, 'MSZoning'].replace({
+        'C (all)': 'C'
+    })
+
+    df.loc[:, 'BldgType'] = df.loc[:, 'BldgType'].replace({
+        'Duplex': 'Duplx',
+        '2fmCon': '2FmCon',
+        'Twnhs': 'TwnhsI'
+    })
+
+    df.loc[:, 'MasVnrType'] = df.loc[:, 'MasVnrType'].replace({
+        'None': 'NA'
+    })
+
+    df.loc[:, 'Electrical'] = df.loc[:, 'Electrical'].replace({
+        'NA': pd.NA
+    })
+
+    # Validate that everything in the data should be there
     cat_cols = [x for x in metadata if metadata[x]['type'] == 'category']
 
     for cat_col in cat_cols:
-        cat_vals = metadata[cat_col]['values']
-        df.loc[:, cat_col] = df[cat_col].where(df[cat_col].isin(cat_vals))
+        meta_vals = set(metadata[cat_col]['values'])
+        df_vals = set(df[cat_col].dropna().astype(str))
+        diff = df_vals.difference(meta_vals)
+        assert not diff, f"{cat_col}: {diff.__repr__()}"
+        # df.loc[:, cat_col] = df[cat_col].where(df[cat_col].isin(cat_vals))
 
     return df
 
@@ -143,12 +172,21 @@ def load_validated_data(fname):
     meta_cols = set(metadata.keys())
     assert df_cols.difference(meta_cols) == {'SalePrice'}
 
+    # Now it's safe to validate against the metadata
+    df = validate_data(df, metadata)
+
     return df, metadata
 
 
 if __name__ == '__main__':
     # Load data into the kernel
     train, metadata = load_validated_data('train.csv')
+
+    def find_cols(search):
+        '''Convenience function to find metadata for columns containing a
+        key word'''
+        keys = [x for x in metadata if search.lower() in x.lower()]
+        return {k: v for k, v in metadata.items() if k in keys}
 
     # Get a list of all numerical fields
     num_cols = [x for x in metadata if metadata[x]['type']=='number']
@@ -163,13 +201,10 @@ if __name__ == '__main__':
     counts = train.count(axis='index')
     counts /= tot_records
     counts = counts.sort_values(ascending=True)
-    counts.head(20)
+    counts[counts < 1]
 
-    def find_cols(search):
-        '''Convenience function to find metadata for columns containing a
-        key word'''
-        keys = [x for x in metadata if search.lower() in x.lower()]
-        return {k: v for k, v in metadata.items() if k in keys}
+    # Exterior2nd
+
 
     # PoolArea (0.005) - Drop in favour of PoolQC which is 100% populated
     # Porch columns will be merged, remaining NAs to be filled with 0s
@@ -192,10 +227,6 @@ if __name__ == '__main__':
     # MSZoning (0.99) - Fill blanks with mode
     # MasVnrType (0.99) - Fill blanks with mode
     # Electrical (0.99) - Fill blanks with mode
-
-
-    # Lots of porch columns with limited data, merge them
-    porch_cols = find_cols('porch').keys()
 
 
     #%% Check for outliers/variance
@@ -228,3 +259,6 @@ if __name__ == '__main__':
     covs = [(x, covs[x]) for x in sorted(covs, key=lambda x: covs[x])]
 
     # Based on tail of covs, could swap TotalBsmtSF to BsmtPresent
+
+
+    # %%

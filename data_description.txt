@@ -41,7 +41,7 @@ Alley: Type of alley access to property
 
        Grvl	Gravel
        Pave	Paved
-       NA 	No alley access
+       NA	No alley access
 		
 LotShape: General shape of property
 
@@ -92,7 +92,7 @@ Neighborhood: Physical locations within Ames city limits
        IDOTRR	Iowa DOT and Rail Road
        MeadowV	Meadow Village
        Mitchel	Mitchell
-       Names	North Ames
+       NAmes	North Ames
        NoRidge	Northridge
        NPkVill	Northpark Villa
        NridgHt	Northridge Heights
@@ -244,7 +244,7 @@ MasVnrType: Masonry veneer type
        BrkCmn	Brick Common
        BrkFace	Brick Face
        CBlock	Cinder Block
-       None	None
+       NA	None
        Stone	Stone
 	
 MasVnrArea: Masonry veneer area in square feet
@@ -502,7 +502,7 @@ YrSold: Year Sold (YYYY)
 
 SaleType: Type of sale
 		
-       WD 	Warranty Deed - Conventional
+       WD	Warranty Deed - Conventional
        CWD	Warranty Deed - Cash
        VWD	Warranty Deed - VA Loan
        New	Home just constructed and sold
