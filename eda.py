@@ -124,9 +124,16 @@ def validate_data(df, metadata):
         'None': 'NA'
     })
 
-    df.loc[:, 'Electrical'] = df.loc[:, 'Electrical'].replace({
-        'NA': pd.NA
+    df.loc[:, 'SaleType'] = df.loc[:, 'SaleType'].replace({
+        'NA': 'Oth'
     })
+
+    for col in ['Electrical', 'MSZoning', 'Utilities',
+                'Exterior1st', 'Exterior2nd', 'KitchenQual',
+                'Functional']:
+        df.loc[:, col] = df.loc[:, col].replace({
+            'NA': pd.NA
+        })
 
     # Validate that everything in the data should be there
     cat_cols = [x for x in metadata if metadata[x]['type'] == 'category']
@@ -170,7 +177,10 @@ def load_validated_data(fname):
 
     # Check that the only difference is the column being predicted
     meta_cols = set(metadata.keys())
-    assert df_cols.difference(meta_cols) == {'SalePrice'}
+    if fname == 'train.csv':
+        assert df_cols.difference(meta_cols) == {'SalePrice'}
+    else:
+        assert not df_cols.difference(meta_cols)
 
     # Now it's safe to validate against the metadata
     df = validate_data(df, metadata)
