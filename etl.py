@@ -83,7 +83,7 @@ def transform_data(df, metadata):
     ]
 
     df.loc[:, mean_cols] = df.loc[:, mean_cols].apply(
-        lambda col: col.fillna(col.mean()),
+        lambda col: col.fillna(col.median()),
         axis=0
     )
     assert pd.isna(df[mean_cols]).sum().sum() == 0
@@ -180,11 +180,16 @@ def scale_numerical(train, val):
     # Scale numerical values, use column list from validation dataset
     # as we don't want to include SalePrice in the scaling
     # Assuming that 32-bit precision is sufficient for target values of this magnitude...
+    scale_cols = {'OverallQual', 'OverallCond'}
+
     num_cols = val.select_dtypes(['number']).columns.tolist()
     for col in num_cols:
         # Create a new scaler object
         # scaler = StandardScaler()
-        scaler = QuantileTransformer(random_state=42)
+        if col in scale_cols:
+            scaler = QuantileTransformer(random_state=42, output_distribution='uniform')
+        else:
+            scaler = QuantileTransformer(random_state=42, output_distribution='normal')
 
         # Extract array of values
         train_vals = train[col].values
@@ -212,7 +217,7 @@ def scale_numerical(train, val):
 
     # Scale the copied SalePrice values
     # scaler = StandardScaler()
-    scaler = QuantileTransformer(random_state=42)
+    scaler = QuantileTransformer(random_state=42, output_distribution='normal')
     train_vals = train['SalePriceTemp'].values
     train_vals = train_vals.reshape(len(train_vals), -1)
     train_vals = scaler.fit_transform(train_vals).flatten()
@@ -273,6 +278,19 @@ def get_dummies(train, val):
 
     return train, val
 
+def get_flags(train, val, metadata):
+    num_cols = [x for x in metadata if metadata[x]['type']=='number' and x in train.columns]
+    scale_cols = {'OverallQual', 'OverallCond'}
+
+    for col in num_cols:
+        if col in scale_cols:
+            continue
+
+        train.loc[:, f'{col}_Flag'] = train[col] == 0
+        val.loc[:, f'{col}_Flag'] = val[col] == 0
+
+    return train, val
+
 
 def derive_fields(train, val, metadata):
 
@@ -281,6 +299,9 @@ def derive_fields(train, val, metadata):
 
     # Take a copy of SalePrice for scaling, used to calculate aggregate statistics
     train.loc[:, 'SalePriceTemp'] = train['SalePrice'].copy(deep=True)
+
+    # Create a separate flag column for numerical values which have been filled with 0
+    train, val = get_flags(train, val, metadata)
 
     # Scale all numerical values to mean 0 and stdev 1
     train, val = scale_numerical(train, val)
