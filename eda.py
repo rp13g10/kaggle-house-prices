@@ -26,28 +26,52 @@ def get_metadata():
     format. This will allow us to substitute human-readable categories back into the dataframe
     to assist with the eda process'''
 
+    # Load in the data dictionary provided by Kaggle
     with open('data_description.txt', 'r') as f:
         raw_meta = f.readlines()
 
     def create_record(cur_key, cur_desc, cur_values):
+        '''Create a dictionary containing all of the data for the current field,
+        taking the form:
+
+        {cur_key: {'description': cur_desc, 'values': cur_values', 'type': str}}
+        
+        Inputs:
+        cur_key - The field name (str)
+        cur_desc - Description of the field (str)
+        cur_values - All possible values for the field (list)
+        
+        Outputs:
+        record - A dictionary containing all of the inputs in a standard format (dict)'''
+
+        # If there's no field name, don't return anything
         if not cur_key:
             return {}
+        
+        # Initialize a nested dictionary for the current field
         record = {cur_key: {}}
+
+        # Store the field description & values
         record[cur_key]['description'] = cur_desc
         record[cur_key]['values'] = cur_values
+
+        # Determine whether the field is numerical or categorical
         if not cur_values:
             record[cur_key]['type'] = 'number'
         elif all([x in cur_values for x in '1 2 3 4 5 6 7 8 9 10'.split()]):
             record[cur_key]['type'] = 'number'
         else:
             record[cur_key]['type'] = 'category'
+
         return record
             
-
+    # Initialize empty variables
     metadata = {}
     cur_key = None
     cur_desc = None
     cur_values = {}
+
+    # Read through the file one line at a time
     for line in raw_meta:
         # Skip empty lines
         if not line.strip():
@@ -65,7 +89,7 @@ def get_metadata():
             cur_key, cur_desc = line.split(': ')
             cur_desc = cur_desc.strip()
             cur_values = {}
-        # indented - will be an id/value pair
+        # Indented - will be an id/value pair
         else:
             id_, value = line.strip().split('\t')
             cur_values[id_] = value
@@ -136,14 +160,14 @@ def validate_data(df, metadata):
         })
 
     # Validate that everything in the data should be there
+    # Any unknown values will throw an error and will need to be
+    # built in to the logic above
     cat_cols = [x for x in metadata if metadata[x]['type'] == 'category']
-
     for cat_col in cat_cols:
         meta_vals = set(metadata[cat_col]['values'])
         df_vals = set(df[cat_col].dropna().astype(str))
         diff = df_vals.difference(meta_vals)
         assert not diff, f"{cat_col}: {diff.__repr__()}"
-        # df.loc[:, cat_col] = df[cat_col].where(df[cat_col].isin(cat_vals))
 
     return df
 
@@ -161,15 +185,8 @@ def load_validated_data(fname):
     meta_cols = set(metadata.keys())
     df_cols = set(df.columns)
 
-    if fname == 'train.csv':
-        # Not a 100% match just yet
-        assert len(meta_cols) == 79
-        assert len(df_cols) == 80
-        assert len(meta_cols.intersection(df_cols)) == 77
-        assert meta_cols - df_cols == {'Bedroom', 'Kitchen'}
-        assert df_cols - meta_cols == {'BedroomAbvGr', 'KitchenAbvGr', 'SalePrice'}
-
     # Update metadata to reflect the dataframe
+    # Field names don't match up in the original files
     metadata['BedroomAbvGr'] = metadata['Bedroom']
     metadata['KitchenAbvGr'] = metadata['Kitchen']
     del metadata['Bedroom']
@@ -180,6 +197,7 @@ def load_validated_data(fname):
     if fname == 'train.csv':
         assert df_cols.difference(meta_cols) == {'SalePrice'}
     else:
+        # test.csv doesn't include the target column so columns should match
         assert not df_cols.difference(meta_cols)
 
     # Now it's safe to validate against the metadata
@@ -189,6 +207,9 @@ def load_validated_data(fname):
 
 
 if __name__ == '__main__':
+    '''Leftover code from the initial EDA process. Mostly this has been moved across to the
+    Jupyter notebook, but it's left here for reference.'''
+
     # Load data into the kernel
     train, metadata = load_validated_data('train.csv')
 
@@ -212,9 +233,6 @@ if __name__ == '__main__':
     counts /= tot_records
     counts = counts.sort_values(ascending=True)
     counts[counts < 1]
-
-    # Exterior2nd
-
 
     # PoolArea (0.005) - Drop in favour of PoolQC which is 100% populated
     # Porch columns will be merged, remaining NAs to be filled with 0s

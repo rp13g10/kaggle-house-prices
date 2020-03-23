@@ -10,35 +10,15 @@ import xgboost
 import pandas as pd
 from copy import deepcopy
 
-# #%% Load and validate data
-# train, metadata = load_validated_data('train.csv')
-# val, _ = load_validated_data('test.csv')
-
-# #%% Fill in/replace values to cleanse dataset
-# train = transform_data(train, metadata)
-# val = transform_data(val, metadata)
-
-# #%% Derive extra fields to assist model fitting
-# train, val = derive_fields(train, val, metadata)
-
-# #%% Split into train/test/validation subsets
-# features = val.columns.tolist()
-
-# X_full = train[features]
-# y_full = train['SalePrice']
-# X_val = val[features]
-
-# X_train, X_test, y_train, y_test = train_test_split(X_full, y_full, test_size=0.3, random_state=42)
-
-#%% Pick which algorithm to use
-# Notes
-# - Small sample size, not much point using a neural network
-# - Regression model required
-# - Always worth trying XGBoost
 
 def evaluate_model_performance(X_full, y_full):
-    k = {'random_state': 42}
-    it = {'max_iter': 100000}
+    '''This function will evaluate the performance of a variety of different regression
+    models on the data, returning a dataframe summarising their performance when
+    fitted using the default parameters'''
+
+    # Arguments which will be applied to the majority of models
+    k = {'random_state': 42}    # Ensure reproducible results
+    it = {'max_iter': 100000}   # Give models adequate time to converge
 
     # To start off, we'll try a wide range of regressors using the default parameters
     regressors = [
@@ -66,14 +46,17 @@ def evaluate_model_performance(X_full, y_full):
         xgboost.XGBRegressor(**k)
     ]
 
+    # For each model in the above list
     results = []
-    reg_iter = tqdm(regressors)
+    reg_iter = tqdm(regressors) # Displays a progress bar
     for regressor in reg_iter:
+        # Get the name of the current model, display it in the progress bar
         model_name = regressor.__class__.__name__
         reg_iter.set_description(model_name)
 
         # Cross-validate to pick the best candidate algorithm
         # RMSE selected as that's what the Kaggle competition is evaluated on
+        # This implements the train/test split for me!
         cv_results = cross_validate(
             estimator=regressor,
             X=X_full,
@@ -94,20 +77,22 @@ def evaluate_model_performance(X_full, y_full):
 
         results.append(out)
 
+    # Convert the final results into a dataframe for easier viewing
     results = pd.DataFrame(results).sort_values(by='test_score', ascending=False)
-    # results['train_score'] = results['train_score'].map('{:,.2f}'.format)
-    # results['test_score'] = results['test_score'].map('{:,.2f}'.format)
 
     return results
 
-#%% Take a look at the output
-# results
 
 # Looks like the ensemble methods are by-and-large the best performing
 def tune_selected_models(X_full, y_full, X_val):
+    '''For the best performing models, this function now uses a randomized search to
+    determine the optimal parameters for them. It returns the best performing configuration
+    for each of the candidate models'''
+
+    # Applied to all models
     k = {'random_state': 42}
 
-    # %% Try to improve results through hyperparameter optimization
+    # Try to improve results through hyperparameter optimization
     candidates = [
         {
             'model': ensemble.GradientBoostingRegressor(**k),
@@ -149,13 +134,17 @@ def tune_selected_models(X_full, y_full, X_val):
         },
     ]
 
+    # Optimize one model at a time, with a progress bar
     results = []
     models = []
     cand_iter = tqdm(candidates)
     for candidate in cand_iter:
+
+        # Extract necessary variables from dictionary
         model = candidate['model']
         params = candidate['params']
 
+        # Fit multiple models, determine the optimal parameters using cross validation
         optimizer = RandomizedSearchCV(
             estimator=model,
             param_distributions=params,
@@ -164,9 +153,9 @@ def tune_selected_models(X_full, y_full, X_val):
             n_jobs=4,
             return_train_score=True
         )
-
         optimizer.fit(X_full, y_full)
 
+        # Preserve relevant metrics for inspection
         out = {
             'model_name': model.__class__.__name__,
             'best_params': optimizer.best_params_,
@@ -176,28 +165,36 @@ def tune_selected_models(X_full, y_full, X_val):
             'std_train_score': optimizer.cv_results_['std_train_score'][optimizer.best_index_],
             'std_test_score': optimizer.cv_results_['std_test_score'][optimizer.best_index_]
         }
+        results.append(out)
 
+        # Make predictions using the best-performing model, write them to a csv file
         preds = optimizer.predict(X_val)
         pred_df = pd.DataFrame(X_val.index, columns=['Id'])
         pred_df.loc[:,'SalePrice'] = preds
         pred_df.to_csv(f'{model.__class__.__name__}.csv', index=False, encoding='utf8', mode='w')
 
-        results.append(out)
-
+        # Save the model to memory for use in the VotingRegressor
         model = (model.__class__.__name__, deepcopy(optimizer.best_estimator_))
         models.append(model)
 
+    # Convert model performance metrics to dataframe for viewing
     results = pd.DataFrame(results)
 
     return results, models
 
 def make_ensemble_prediction(X_full, y_full, X_val, models):
+    '''Take the final models from the previous stage, use each of them to
+    make a prediction and take the average.'''
 
+    # Create an ensemble containing all of the selected models
     parliament = ensemble.VotingRegressor(
         estimators=models)
 
+    # Make predictions using this final model
     parliament.fit(X_full, y_full)
     preds = parliament.predict(X_val)
+
+    # Write the output to a csv file
     pred_df = pd.DataFrame(X_val.index, columns=['Id'])
     pred_df.loc[:,'SalePrice'] = preds
     pred_df.to_csv('ensemble.csv', index=False, encoding='utf8', mode='w')
