@@ -10,6 +10,7 @@ Folder structure
 #%% Import modules
 import pandas as pd
 from eda import load_validated_data
+from sklearn.preprocessing import StandardScaler, QuantileTransformer
 
 #%% Load in data
 # train, metadata = load_validated_data('train.csv')
@@ -174,13 +175,58 @@ def transform_data(df, metadata):
 
     return df
 
-def derive_fields(train, test, metadata):
 
-    overall_min = train['SalePrice'].min()
-    overall_max = train['SalePrice'].max()
-    overall_mean = train['SalePrice'].mean()
+def scale_numerical(train, val):
+    # Scale numerical values, use column list from validation dataset
+    # as we don't want to include SalePrice in the scaling
+    # Assuming that 32-bit precision is sufficient for target values of this magnitude...
+    num_cols = val.select_dtypes(['number']).columns.tolist()
+    for col in num_cols:
+        # Create a new scaler object
+        # scaler = StandardScaler()
+        scaler = QuantileTransformer(random_state=42)
 
+        # Extract array of values
+        train_vals = train[col].values
+        val_vals = val[col].values
+
+        # Calculate no. samples in each array
+        train_samples = len(train_vals)
+        val_samples = len(val_vals)
+
+        # Reshape for scaling
+        train_vals = train_vals.reshape(train_samples, -1)
+        val_vals = val_vals.reshape(val_samples, -1)
+
+        # Perform scaling operation
+        train_vals = scaler.fit_transform(train_vals)
+        val_vals = scaler.transform(val_vals)
+
+        # Flatten the output
+        train_vals = train_vals.flatten()
+        val_vals = val_vals.flatten()
+
+        # Assign scaled values back to dataframe
+        train.loc[:, col] = train_vals
+        val.loc[:, col] = val_vals
+
+    # Scale the copied SalePrice values
+    # scaler = StandardScaler()
+    scaler = QuantileTransformer(random_state=42)
+    train_vals = train['SalePriceTemp'].values
+    train_vals = train_vals.reshape(len(train_vals), -1)
+    train_vals = scaler.fit_transform(train_vals).flatten()
+    train.loc[:, 'SalePriceTemp'] = train_vals
+
+    return train, val
+
+
+def get_aggregates(train, val, metadata):
     # %% Derive some aggregate statistics on SalePrice across categories
+    overall_min = train['SalePriceTemp'].min()
+    overall_max = train['SalePriceTemp'].max()
+    overall_mean = train['SalePriceTemp'].mean()
+
     cat_cols = [x for x in metadata if metadata[x]['type']=='category' and x in train.columns]
 
     # Only consider columns which are fully populated
@@ -191,18 +237,64 @@ def derive_fields(train, test, metadata):
 
     for cat_col in cat_cols:
         cat_stats = train.groupby(cat_col).agg(**{
-            f"{cat_col}_min": ('SalePrice', 'min'),
-            f"{cat_col}_max": ('SalePrice', 'max'),
-            f"{cat_col}_mean": ('SalePrice', 'mean')
+            f"{cat_col}_min": ('SalePriceTemp', 'min'),
+            f"{cat_col}_max": ('SalePriceTemp', 'max'),
+            f"{cat_col}_mean": ('SalePriceTemp', 'mean')
         }).reset_index()
         train = pd.merge(left=train, right=cat_stats, on=cat_col, how='left')
-        test = pd.merge(left=test, right=cat_stats, on=cat_col, how='left')
+        val = pd.merge(left=val, right=cat_stats, on=cat_col, how='left')
 
-        test.loc[:, f"{cat_col}_min"] = test.loc[:, f"{cat_col}_min"].fillna(overall_min)
-        test.loc[:, f"{cat_col}_max"] = test.loc[:, f"{cat_col}_max"].fillna(overall_max)
-        test.loc[:, f"{cat_col}_mean"] = test.loc[:, f"{cat_col}_mean"].fillna(overall_mean)
-    
-    return train, test
+        val.loc[:, f"{cat_col}_min"] = val.loc[:, f"{cat_col}_min"].fillna(overall_min)
+        val.loc[:, f"{cat_col}_max"] = val.loc[:, f"{cat_col}_max"].fillna(overall_max)
+        val.loc[:, f"{cat_col}_mean"] = val.loc[:, f"{cat_col}_mean"].fillna(overall_mean)
+
+    # Drop the copy of the SalePrice column
+    train = train.drop(columns=['SalePriceTemp'])
+
+    return train, val
+
+def get_dummies(train, val):
+    # Generate dummy variables for all categorical columns
+    cat_cols = train.select_dtypes(['object']).columns.tolist()
+
+    train_dummies = pd.get_dummies(train.loc[:, cat_cols], drop_first=True)
+    val_dummies = pd.get_dummies(val.loc[:, cat_cols], drop_first=True)
+
+    dummy_cols = set(train_dummies.columns).union(set(val_dummies.columns))
+    dummy_cols = list(dummy_cols)
+    train_dummies = train_dummies.reindex(columns=dummy_cols).fillna(0)
+    val_dummies = val_dummies.reindex(columns=dummy_cols).fillna(0)
+
+    train = train.drop(columns=cat_cols)
+    val = val.drop(columns=cat_cols)
+
+    train = pd.concat([train, train_dummies], axis=1)
+    val = pd.concat([val, val_dummies], axis=1)
+
+    return train, val
+
+
+def derive_fields(train, val, metadata):
+
+    train_inx = train.index.copy()
+    val_inx = val.index.copy()
+
+    # Take a copy of SalePrice for scaling, used to calculate aggregate statistics
+    train.loc[:, 'SalePriceTemp'] = train['SalePrice'].copy(deep=True)
+
+    # Scale all numerical values to mean 0 and stdev 1
+    train, val = scale_numerical(train, val)
+
+    # Generate aggregate statistics
+    train, val = get_aggregates(train, val, metadata)
+
+    # Create dummy variables for categorical fields
+    train, val = get_dummies(train, val)
+
+    train.index = train_inx
+    val.index = val_inx
+
+    return train, val
 
 # %% At this point, no NA objects should exist (but 'NA' as a string is OK)
 # assert pd.isna(train).sum().sum() == 0
