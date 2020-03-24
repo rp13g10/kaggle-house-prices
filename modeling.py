@@ -1,14 +1,22 @@
-#%% Module imports
-from eda import load_validated_data
-from etl import transform_data, derive_fields
+'''This file contains the functions required to evaluate the performance of a
+variety of regression models, and to select the optimal parameters for 4
+models which were experimentally determined to perform the best on the
+data provided.
 
-from tqdm import tqdm
-import sklearn as sk
-from sklearn.model_selection import train_test_split, cross_validate, RandomizedSearchCV
-from sklearn import linear_model, svm, neighbors, gaussian_process, tree, ensemble
-import xgboost
-import pandas as pd
+
+Folder structure
+- eda.py - General exploration of the dataset
+- etl.py - Tidying the datset in preparation for modeling
+- modeling.py - Evaluate performance of various models
+- Summary of Results.ipynb - Primary script, coordinates execution of all functions'''
+
+#%% Module imports
 from copy import deepcopy
+from sklearn.model_selection import cross_validate, RandomizedSearchCV
+from sklearn import linear_model, svm, neighbors, gaussian_process, tree, ensemble
+from tqdm import tqdm
+import pandas as pd
+import xgboost
 
 
 def evaluate_model_performance(X_full, y_full):
@@ -128,8 +136,8 @@ def tune_selected_models(X_full, y_full, X_val):
                 'n_estimators': [50, 100, 250, 1000],
                 'learning_rate': [0.01, 0.02, 0.1, 0.2],
                 'colsample_by_tree': [0.1, 0.25, 0.5, 1.0],
-                'gamma': [0,1,2,5], #min loss reduction required for new branch split
-                'reg_lambda': [0,1,2] #l2 regularization strength
+                'gamma': [0, 1, 2, 5], #min loss reduction required for new branch split
+                'reg_lambda': [0, 1, 2] #l2 regularization strength
             },
         },
     ]
@@ -170,8 +178,12 @@ def tune_selected_models(X_full, y_full, X_val):
         # Make predictions using the best-performing model, write them to a csv file
         preds = optimizer.predict(X_val)
         pred_df = pd.DataFrame(X_val.index, columns=['Id'])
-        pred_df.loc[:,'SalePrice'] = preds
-        pred_df.to_csv(f'{model.__class__.__name__}.csv', index=False, encoding='utf8', mode='w')
+        pred_df.loc[:, 'SalePrice'] = preds
+        pred_df.to_csv(
+            f'predictions/{model.__class__.__name__}.csv',
+            index=False,
+            encoding='utf8',
+            mode='w')
 
         # Save the model to memory for use in the VotingRegressor
         model = (model.__class__.__name__, deepcopy(optimizer.best_estimator_))
@@ -196,5 +208,5 @@ def make_ensemble_prediction(X_full, y_full, X_val, models):
 
     # Write the output to a csv file
     pred_df = pd.DataFrame(X_val.index, columns=['Id'])
-    pred_df.loc[:,'SalePrice'] = preds
-    pred_df.to_csv('ensemble.csv', index=False, encoding='utf8', mode='w')
+    pred_df.loc[:, 'SalePrice'] = preds
+    pred_df.to_csv('predictions/VotingRegressor.csv', index=False, encoding='utf8', mode='w')

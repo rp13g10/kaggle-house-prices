@@ -5,15 +5,12 @@ Folder structure
 - eda.py - General exploration of the dataset
 - etl.py - Tidying the datset in preparation for modeling
 - modeling.py - Evaluate performance of various models
-- generate_predictions.py - Apply final model to generate predictions'''
+- Summary of Results.ipynb - Primary script, coordinates execution of all functions'''
 
 #%% Import modules
 import pandas as pd
-from eda import load_validated_data
-from sklearn.preprocessing import StandardScaler, QuantileTransformer
+from sklearn.preprocessing import QuantileTransformer
 
-#%% Load in data
-# train, metadata = load_validated_data('train.csv')
 
 def transform_data(df, metadata):
     '''Transform validated dataset into a state which can be used for modelling. No
@@ -28,7 +25,7 @@ def transform_data(df, metadata):
         return {k: v for k, v in metadata.items() if k in keys}
 
     # Merge all porch columns into one
-    porch_cols = [x for x in find_cols('porch')]
+    porch_cols = list(find_cols('porch'))
     def coalesce(row):
         '''Analagous to coalesce in MSSQL, takes the first non-null value in the row
         provided'''
@@ -53,7 +50,7 @@ def transform_data(df, metadata):
     ])
 
     # Remove any 0s from numerical fields, deal with them using logic defined in eda.py
-    num_cols = [x for x in metadata if metadata[x]['type']=='number' and x in df.columns]
+    num_cols = [x for x in metadata if metadata[x]['type'] == 'number' and x in df.columns]
     df.loc[:, num_cols] = df.loc[:, num_cols].replace(0, pd.NA)
 
     # Fill numerical fields with 0 (if it makes sense to do so)
@@ -188,10 +185,10 @@ def transform_data(df, metadata):
 def scale_numerical(train, val):
     '''Scales all numerical values, using the column list from validation dataset
     as we don't want to include SalePrice in the scaling.
-    
+
     See here for documentation on the scaling algorithm:
     https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.QuantileTransformer.html
-    
+
     This is necessary to ensure that no single field ends up unduly impacting the output of
     the model simply because it contains the biggest numbers.
     '''
@@ -258,7 +255,7 @@ def get_aggregates(train, val, metadata):
     overall_mean = train['SalePriceTemp'].mean()
 
     # Get a list of all categorical columns
-    cat_cols = [x for x in metadata if metadata[x]['type']=='category' and x in train.columns]
+    cat_cols = [x for x in metadata if metadata[x]['type'] == 'category' and x in train.columns]
 
     # Only consider columns which are fully populated
     cat_cols = [x for x in cat_cols if 'NA' not in train[x].value_counts()]
@@ -324,7 +321,7 @@ def get_flags(train, val, metadata):
     between genuine low values, and 'zeros' which are there in place of missing data'''
 
     # Get a list of numerical fields
-    num_cols = [x for x in metadata if metadata[x]['type']=='number' and x in train.columns]
+    num_cols = [x for x in metadata if metadata[x]['type'] == 'number' and x in train.columns]
     scale_cols = {'OverallQual', 'OverallCond'}
 
     # Derive a new field for each numerical column

@@ -1,13 +1,14 @@
-'''This file will be used to determine which fields are likely to be useful in making final
-predictions using the provided dataset. After this has been completed, etl.py will parse the
-data, modeling.py will be used to determine the optimal algorithm and generate_predictions.py
-will 
+'''This file contains the functions which load in the provided data and validate that all of the
+contents are as expected. This file was built during the ETL process, patching up gaps in
+the data in an iterative fashion until all assertions were satisfied. Some fragments of the
+code from this have been left in place for reference, and others have now been moved to the
+Jupyter notebook.
 
 Folder structure
 - eda.py - General exploration of the dataset
 - etl.py - Tidying the datset in preparation for modeling
 - modeling.py - Evaluate performance of various models
-- generate_predictions.py - Apply final model to generate predictions'''
+- Summary of Results.ipynb - Primary script, coordinates execution of all functions'''
 
 #%% Import modules
 import pandas as pd
@@ -27,7 +28,7 @@ def get_metadata():
     to assist with the eda process'''
 
     # Load in the data dictionary provided by Kaggle
-    with open('data_description.txt', 'r') as f:
+    with open('data/data_description.txt', 'r') as f:
         raw_meta = f.readlines()
 
     def create_record(cur_key, cur_desc, cur_values):
@@ -35,19 +36,19 @@ def get_metadata():
         taking the form:
 
         {cur_key: {'description': cur_desc, 'values': cur_values', 'type': str}}
-        
+
         Inputs:
         cur_key - The field name (str)
         cur_desc - Description of the field (str)
         cur_values - All possible values for the field (list)
-        
+
         Outputs:
         record - A dictionary containing all of the inputs in a standard format (dict)'''
 
         # If there's no field name, don't return anything
         if not cur_key:
             return {}
-        
+
         # Initialize a nested dictionary for the current field
         record = {cur_key: {}}
 
@@ -64,7 +65,7 @@ def get_metadata():
             record[cur_key]['type'] = 'category'
 
         return record
-            
+
     # Initialize empty variables
     metadata = {}
     cur_key = None
@@ -96,7 +97,7 @@ def get_metadata():
 
     # Write final field to metadata
     metadata.update(create_record(cur_key, cur_desc, cur_values))
-    
+
     return metadata
 
 
@@ -108,7 +109,7 @@ def validate_data(df, metadata):
     df = df.copy(deep=True)
 
     #%% Take a closer look at numerical columns
-    num_cols = [x for x in metadata if metadata[x]['type']=='number']
+    num_cols = [x for x in metadata if metadata[x]['type'] == 'number']
 
     # Remove any non-numerical data from the numerical columns
     for num_col in num_cols:
@@ -194,7 +195,7 @@ def load_validated_data(fname):
 
     # Check that the only difference is the column being predicted
     meta_cols = set(metadata.keys())
-    if fname == 'train.csv':
+    if 'train.csv' in fname:
         assert df_cols.difference(meta_cols) == {'SalePrice'}
     else:
         # test.csv doesn't include the target column so columns should match
@@ -207,11 +208,11 @@ def load_validated_data(fname):
 
 
 if __name__ == '__main__':
-    '''Leftover code from the initial EDA process. Mostly this has been moved across to the
-    Jupyter notebook, but it's left here for reference.'''
+    # Leftover code from the initial EDA process. Mostly this has been moved across to the
+    # Jupyter notebook, but it's left here for reference.
 
     # Load data into the kernel
-    train, metadata = load_validated_data('train.csv')
+    train, metadata = load_validated_data('data/train.csv')
 
     def find_cols(search):
         '''Convenience function to find metadata for columns containing a
@@ -220,19 +221,20 @@ if __name__ == '__main__':
         return {k: v for k, v in metadata.items() if k in keys}
 
     # Get a list of all numerical fields
-    num_cols = [x for x in metadata if metadata[x]['type']=='number']
+    num_cols = [x for x in metadata if metadata[x]['type'] == 'number']
 
 
-    ####################################################################################################
-    # Check for missing values                                                                         #
-    ####################################################################################################
+
+    ################################################################################################
+    # Fragments from EDA process                                                                   #
+    ################################################################################################
 
     #%% Check field completion
     tot_records = len(train.index)
     counts = train.count(axis='index')
     counts /= tot_records
     counts = counts.sort_values(ascending=True)
-    counts[counts < 1]
+    print(counts[counts < 1])
 
     # PoolArea (0.005) - Drop in favour of PoolQC which is 100% populated
     # Porch columns will be merged, remaining NAs to be filled with 0s
@@ -243,7 +245,7 @@ if __name__ == '__main__':
     # Drop MasVnrArea (0.4) in favour of MasVnrType
     # Fill 2ndFlrSF (0.43) with mean where building type isn't a 1-storey variant
     # WoodDeckSF (0.47) - Fill blanks with 0
-    # BsmtFinSF1 (0.68) - Fill blanks with 0 if BsmtFinType1 is 'NA' else use TotalBsmtSF - BsmtUnfSF
+    # BsmtFinSF1 (0.68) - 0 if BsmtFinType1 is 'NA' else use TotalBsmtSF - BsmtUnfSF
     # LotFrontage (0.82) - Fill blanks with mean
     # Neighborhood (0.84) - Fill blanks with mode
     # BldgType (0.91) - Fill blanks with mode
@@ -265,14 +267,12 @@ if __name__ == '__main__':
         input('Press enter to continue')
 
     # Possible anomalies in LotArea
-    # Low variance in Street, Utilities, Condition2, Heating, 
+    # Low variance in Street, Utilities, Condition2, Heating,
     # Very few BsmtHalfBaht entries, merge with BsmtFullBath
     # Drop MiscFeature in favour of MiscVal, almost all are sheds
 
-
-
     #%% Check for covariance
-    plt.figure(figsize=(18,16))
+    plt.figure(figsize=(18, 16))
     scaled = train[num_cols] / train[num_cols].std()
     cov = scaled.cov()
     fig = sns.heatmap(cov, vmin=0, vmax=1)
@@ -289,4 +289,4 @@ if __name__ == '__main__':
     # Based on tail of covs, could swap TotalBsmtSF to BsmtPresent
 
 
-    # %%
+# %%
